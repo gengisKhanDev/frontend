@@ -1,0 +1,24 @@
+[
+	{
+		"id": "1",
+		"userId": "1",
+		"userName": "Usuario",
+		"userEmail": "usuario@test.com",
+		"amount": 50000,
+		"term": 24,
+		"status": "pending",
+		"requestDate": "2025-01-15T10:30:00.000Z"
+	},
+	{
+		"id": "2",
+		"userId": "1",
+		"userName": "Usuario",
+		"userEmail": "usuario@test.com",
+		"amount": 100000,
+		"term": 36,
+		"status": "approved",
+		"requestDate": "2025-01-10T14:20:00.000Z",
+		"reviewDate": "2025-01-11T09:15:00.000Z",
+		"reviewedBy": "Administrador"
+	}
+]
