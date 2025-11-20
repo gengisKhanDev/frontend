@@ -1,71 +1,93 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import {
+	createContext,
+	useContext,
+	useEffect,
+	useState,
+	ReactNode,
+} from 'react'
 import { User } from '@/features/auth/domain/auth.types'
+import {
+	login as loginService,
+	validateToken,
+	getUserFromToken,
+} from '@/features/auth/infrastructure/auth.service'
 
-interface AuthContextType {
+interface AuthContextValue {
 	user: Omit<User, 'password'> | null
 	token: string | null
 	isLoading: boolean
-	login: (token: string, user: Omit<User, 'password'>) => void
+	login: (email: string, password: string) => Promise<Omit<User, 'password'>>
 	logout: () => void
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+
+const STORAGE_KEY = 'loan-app-auth'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-	const router = useRouter()
-	const pathname = usePathname()
 	const [user, setUser] = useState<Omit<User, 'password'> | null>(null)
 	const [token, setToken] = useState<string | null>(null)
 	const [isLoading, setIsLoading] = useState(true)
 
+	// Cargar sesión desde localStorage
 	useEffect(() => {
-		const storedToken = localStorage.getItem('auth_token')
-		const storedUser = localStorage.getItem('auth_user')
+		if (typeof window === 'undefined') return
 
-		if (storedToken && storedUser) {
-			try {
-				const userData = JSON.parse(storedUser)
-				setToken(storedToken)
-				setUser(userData)
-			} catch (error) {
-				console.error('[loan-service-front] Error parsing stored user:', error)
-				localStorage.removeItem('auth_token')
-				localStorage.removeItem('auth_user')
+		const stored = window.localStorage.getItem(STORAGE_KEY)
+		if (stored) {
+			const parsed = JSON.parse(stored) as { token: string }
+
+			if (validateToken(parsed.token)) {
+				const u = getUserFromToken(parsed.token)
+				if (u) {
+					setUser(u)
+					setToken(parsed.token)
+				}
+			} else {
+				window.localStorage.removeItem(STORAGE_KEY)
 			}
 		}
 
 		setIsLoading(false)
 	}, [])
 
-	const login = (newToken: string, userData: Omit<User, 'password'>) => {
-		localStorage.setItem('auth_token', newToken)
-		localStorage.setItem('auth_user', JSON.stringify(userData))
-		setToken(newToken)
-		setUser(userData)
+	const handleLogin = async (email: string, password: string) => {
+		const res = await loginService(email, password)
+		setUser(res.user)
+		setToken(res.token)
+
+		window.localStorage.setItem(
+			STORAGE_KEY,
+			JSON.stringify({ token: res.token }),
+		)
+
+		// devolvemos el user para que el componente pueda usar el role
+		return res.user
 	}
 
-	const logout = () => {
-		localStorage.removeItem('auth_token')
-		localStorage.removeItem('auth_user')
-		setToken(null)
+	const handleLogout = () => {
 		setUser(null)
-		router.push('/login')
+		setToken(null)
+		if (typeof window !== 'undefined') {
+			window.localStorage.removeItem(STORAGE_KEY)
+		}
 	}
 
-	return (
-		<AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
-			{children}
-		</AuthContext.Provider>
-	)
+	const value: AuthContextValue = {
+		user,
+		token,
+		isLoading,
+		login: handleLogin,
+		logout: handleLogout,
+	}
+
+	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {
-	const context = useContext(AuthContext)
-	if (context === undefined) {
-		throw new Error('useAuth must be used within an AuthProvider')
-	}
-	return context
+	const ctx = useContext(AuthContext)
+	if (!ctx) throw new Error('useAuth must be used within AuthProvider')
+	return ctx
 }

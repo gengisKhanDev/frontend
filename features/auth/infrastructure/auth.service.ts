@@ -1,52 +1,106 @@
-import usersData from '@/features/auth/infrastructure/mocks/users.json'
+'use client'
+
 import { User, AuthResponse } from '@/features/auth/domain/auth.types'
 
-function generateMockToken(userId: string, role: string): string {
-	const payload = btoa(JSON.stringify({ userId, role, exp: Date.now() + 3600000 }))
-	return `mock.${payload}.signature`
+const API_BASE_URL =
+	process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080'
+
+/**
+ * Construye el "token" que vamos a guardar:
+ * es simplemente el Base64 de "email:password"
+ */
+function buildBasicToken(email: string, password: string): string {
+	return btoa(`${email}:${password}`)
 }
 
-export function decodeToken(token: string): { userId: string; role: string; exp: number } | null {
-	try {
-		const parts = token.split('.')
-		if (parts.length !== 3) return null
-		return JSON.parse(atob(parts[1]))
-	} catch {
-		return null
+/**
+ * Este header se usará en todos los fetch al backend protegido con Basic Auth
+ */
+export function buildAuthHeader(token: string | null): HeadersInit {
+	if (!token) return {}
+	return {
+		Authorization: `Basic ${token}`,
 	}
 }
 
+/**
+ * Como el backend solo usa Basic Auth y no tiene un /login como tal,
+ * nosotros "validamos" haciendo un request real al backend.
+ */
 export async function login(email: string, password: string): Promise<AuthResponse> {
-	await new Promise(resolve => setTimeout(resolve, 800))
+	const basicToken = buildBasicToken(email, password)
 
-	const user = usersData.find(u => u.email === email && u.password === password) as User | undefined
+	const res = await fetch(`${API_BASE_URL}/api/loans`, {
+		method: 'GET',
+		headers: {
+			...buildAuthHeader(basicToken),
+			Accept: 'application/json',
+		},
+	})
 
-	if (!user) {
+	if (res.status === 401) {
 		throw new Error('Credenciales inválidas')
 	}
 
-	const { password: _, ...userWithoutPassword } = user
-	const token = generateMockToken(user.id, user.role)
+	if (!res.ok) {
+		throw new Error('Error al intentar iniciar sesión')
+	}
+
+	// Como la prueba solo tiene estos dos usuarios, podemos mapearlos aquí
+	const isAdmin = email === 'admin@test.com'
+
+	const user: Omit<User, 'password'> = {
+		id: isAdmin ? '2' : '1',
+		email,
+		role: isAdmin ? 'admin' : 'user',
+		name: isAdmin ? 'Administrador' : 'Usuario',
+	}
 
 	return {
-		user: userWithoutPassword,
-		token
+		user,
+		token: basicToken, // guardamos solo el Base64, sin "Basic "
 	}
 }
 
-export function validateToken(token: string): boolean {
-	const decoded = decodeToken(token)
-	if (!decoded) return false
-	return decoded.exp > Date.now()
+/**
+ * En Basic Auth realmente no hay expiración, pero mantenemos la interfaz.
+ */
+export function validateToken(token: string | null): boolean {
+	return !!token
 }
 
-export function getUserFromToken(token: string): Omit<User, 'password'> | null {
-	const decoded = decodeToken(token)
-	if (!decoded || !validateToken(token)) return null
+/**
+ * Reconstruimos el usuario a partir del token guardado.
+ * Solo usamos el email y de nuevo mappeamos a admin/user.
+ */
+export function getUserFromToken(token: string | null): Omit<User, 'password'> | null {
+	if (!token) return null
 
-	const user = usersData.find(u => u.id === decoded.userId) as User | undefined
-	if (!user) return null
+	try {
+		const decoded = atob(token) // "email:password"
+		const [email] = decoded.split(':')
 
-	const { password: _, ...userWithoutPassword } = user
-	return userWithoutPassword
+		if (!email) return null
+
+		const isAdmin = email === 'admin@test.com'
+
+		const user: Omit<User, 'password'> =
+			isAdmin
+				? {
+					id: '2',
+					email,
+					role: 'admin',
+					name: 'Administrador',
+				}
+				: {
+					id: '1',
+					email,
+					role: 'user',
+					name: 'Usuario',
+				}
+
+		return user
+	} catch {
+		return null
+	}
 }

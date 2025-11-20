@@ -12,7 +12,7 @@ import { AlertCircle, Loader2 } from 'lucide-react'
 
 export function LoginForm() {
 	const router = useRouter()
-	const { login: setAuth } = useAuth()
+	const { login } = useAuth()
 	const [isLoading, setIsLoading] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 
@@ -44,12 +44,10 @@ export function LoginForm() {
 		setIsLoading(true)
 
 		try {
-			const { login: authenticateUser } = await import('@/features/auth/infrastructure/auth.service')
-			const result = await authenticateUser(formData.email, formData.password)
+			// usamos SOLO el contexto
+			const user = await login(formData.email, formData.password)
 
-			setAuth(result.token, result.user)
-
-			if (result.user.role === 'admin') {
+			if (user.role === 'admin') {
 				router.push('/admin/dashboard')
 			} else {
 				router.push('/prestamos')
